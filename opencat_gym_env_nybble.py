@@ -26,7 +26,7 @@ def leg_IK(angle, length):
     cosAngle1 = (JOINT_LENGTH**2 + JOINT_LENGTH**2 - length**2) / (2 * JOINT_LENGTH * JOINT_LENGTH)
     beta = np.arccos(cosAngle1)
 
-    return angle - alpha, 180 - beta
+    return angle - alpha, np.pi - beta
 
 class OpenCatGymEnv(gym.Env):
     """ Gym environment (stable baselines 3) for OpenCat robots.
@@ -62,17 +62,17 @@ class OpenCatGymEnv(gym.Env):
         ds = np.deg2rad(STEP_ANGLE) # Maximum joint angle derivative (maximum change per step), should be implemented in setJointMotorControlArray
         
         # Use IK to compute the new angles of each joint
-        desired_left_front_angle = np.deg2rad(BOUND_ANGLE) * action[0]
-        desired_left_front_length = JOINT_LENGTH * (action[1] + 1) / 2
+        desired_left_front_angle = np.deg2rad(BOUND_ANGLE * action[0])
+        desired_left_front_length = JOINT_LENGTH * (action[1] + 1)
 
-        desired_right_front_angle = np.deg2rad(BOUND_ANGLE) * action[2]
-        desired_right_front_length = JOINT_LENGTH * (action[3] + 1) / 2
+        desired_right_front_angle = np.deg2rad(BOUND_ANGLE * action[2])
+        desired_right_front_length = JOINT_LENGTH * (action[3] + 1)
 
-        desired_left_rear_angle = np.deg2rad(BOUND_ANGLE) * action[4]
-        desired_left_rear_length = JOINT_LENGTH * (action[5] + 1) / 2
+        desired_left_rear_angle = np.deg2rad(BOUND_ANGLE * action[4])
+        desired_left_rear_length = JOINT_LENGTH * (action[5] + 1)
 
-        desired_right_rear_angle = np.deg2rad(BOUND_ANGLE) * action[6]
-        desired_right_rear_length = JOINT_LENGTH * (action[7] + 1) / 2
+        desired_right_rear_angle = np.deg2rad(BOUND_ANGLE * action[6])
+        desired_right_rear_length = JOINT_LENGTH * (action[7] + 1)
 
         # Compute the new angles of the joints
         desiredJointAngles[0:2] = leg_IK(desired_left_front_angle, desired_left_front_length)
