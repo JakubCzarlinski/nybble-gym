@@ -13,6 +13,20 @@ REWARD_FACTOR = 10
 REWARD_WEIGHT_1 = 1.0
 BOUND_ANGLE = 40
 STEP_ANGLE = 15 # Maximum angle delta per step
+JOINT_LENGTH = 0.05
+
+def leg_IK(angle, length):
+    """
+    Returns each angle in the joint of the leg, to match the desired swing angle and leg extension (length).
+    """
+    # Inner angle alpha
+    cosAngle0 = (length**2) / (2 * length * JOINT_LENGTH)
+    alpha = np.arccos(cosAngle0)
+    # Inner angle beta
+    cosAngle1 = (JOINT_LENGTH**2 + JOINT_LENGTH**2 - length**2) / (2 * JOINT_LENGTH * JOINT_LENGTH)
+    beta = np.arccos(cosAngle1)
+
+    return angle - alpha, 180 - beta
 
 class OpenCatGymEnv(gym.Env):
     """ Gym environment (stable baselines 3) for OpenCat robots.
@@ -33,7 +47,7 @@ class OpenCatGymEnv(gym.Env):
         p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
         p.resetDebugVisualizerCamera(cameraDistance=0.5, cameraYaw=-10, cameraPitch=-40, cameraTargetPosition=[0.4,0,0])
         
-        # The action space are the 8 joint angles        
+        # The action space are the 4 leg angles and their extensions   
         self.action_space = spaces.Box(np.array([-1]*8), np.array([1]*8))
 
         # The observation space are the torso roll, pitch and the joint angles and a history of the last 20 joint angles
@@ -44,26 +58,34 @@ class OpenCatGymEnv(gym.Env):
         
         lastPosition = p.getBasePositionAndOrientation(self.robotUid)[0]
         jointAngles = np.asarray(p.getJointStates(self.robotUid, self.jointIds), dtype=object)[:,0]
-        ds = np.deg2rad(STEP_ANGLE) # Maximum joint angle derivative (maximum change per step)
-        jointAngles += action * ds  # Change per step including agent action
+        desiredJointAngles = jointAngles
+        ds = np.deg2rad(STEP_ANGLE) # Maximum joint angle derivative (maximum change per step), should be implemented in setJointMotorControlArray
         
-        # Apply joint boundaries       
-        jointAngles[0] = np.clip(jointAngles[0], -self.boundAngles, self.boundAngles)       # shoulder_left
-        jointAngles[1] = np.clip(jointAngles[1], 0, self.boundAngles)                       # elbow_left
-        jointAngles[2] = np.clip(jointAngles[2], -self.boundAngles, self.boundAngles)       # shoulder_right
-        jointAngles[3] = np.clip(jointAngles[3], 0, self.boundAngles)                       # elbow_right
-        jointAngles[4] = np.clip(jointAngles[4], -self.boundAngles, 0)                      # hip_right
-        jointAngles[5] = np.clip(jointAngles[5], -self.boundAngles, 0)                      # knee_right
-        jointAngles[6] = np.clip(jointAngles[6], -self.boundAngles, 0)                      # hip_left
-        jointAngles[7] = np.clip(jointAngles[7], -self.boundAngles, 0)                      # knee_left
-        
-        
+        # Use IK to compute the new angles of each joint
+        desired_left_front_angle = np.deg2rad(BOUND_ANGLE) * action[0]
+        desired_left_front_length = JOINT_LENGTH * (action[1] + 1) / 2
+
+        desired_right_front_angle = np.deg2rad(BOUND_ANGLE) * action[2]
+        desired_right_front_length = JOINT_LENGTH * (action[3] + 1) / 2
+
+        desired_left_rear_angle = np.deg2rad(BOUND_ANGLE) * action[4]
+        desired_left_rear_length = JOINT_LENGTH * (action[5] + 1) / 2
+
+        desired_right_rear_angle = np.deg2rad(BOUND_ANGLE) * action[6]
+        desired_right_rear_length = JOINT_LENGTH * (action[7] + 1) / 2
+
+        # Compute the new angles of the joints
+        desiredJointAngles[0:2] = leg_IK(desired_left_front_angle, desired_left_front_length)
+        desiredJointAngles[2:4] = leg_IK(desired_right_front_angle, desired_right_front_length)
+        desiredJointAngles[4:6] = leg_IK(desired_left_rear_angle, desired_left_rear_length)
+        desiredJointAngles[6:8] = leg_IK(desired_right_rear_angle, desired_right_rear_length)
+
         if(self.step_counter % 2 == 0): # Every 2nd iteration will be added to the joint history
-            self.jointAngles_history = np.append(self.jointAngles_history, jointAngles)
+            self.jointAngles_history = np.append(self.jointAngles_history, desiredJointAngles)
             self.jointAngles_history = np.delete(self.jointAngles_history, np.s_[0:8])
           
         # Set new joint angles
-        p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, jointAngles)
+        p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, targetPositions=desiredJointAngles)
         p.stepSimulation()
         
        # Read robot state (pitch, roll and their derivatives of the torso-link)
