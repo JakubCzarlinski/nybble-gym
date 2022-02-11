@@ -1,4 +1,3 @@
-from math import sqrt
 import gym
 from gym import error, spaces, utils
 from gym.utils import seeding
@@ -6,6 +5,7 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 import time
+import math
 
 from sklearn.preprocessing import normalize
 
@@ -16,18 +16,31 @@ BOUND_ANGLE = 40
 STEP_ANGLE = 15 # Maximum angle delta per step
 JOINT_LENGTH = 0.05
 
-def leg_IK(angle, length, sign=1, offset=(np.pi/2)):
+def leg_IK(angle, length, offset, sign=1):
     """
     Returns each angle in the joint of the leg, to match the desired swing angle and leg extension (length).
     """
     # Inner angle alpha
-    cosAngle0 = sqrt(-(length**2) + 2 * length * JOINT_LENGTH)
-    alpha = np.arccos(cosAngle0)
+    cosAngle0 = (length**2) / (2 * JOINT_LENGTH * length)
+    alpha = np.arccos(cosAngle0) * sign + angle
+    #if alpha < 0:
+    #    sign = -sign
     # Inner angle beta
-    cosAngle1 = length
-    beta = np.arccos(cosAngle1)
+    cosAngle1 = (-(length**2) + JOINT_LENGTH**2 + JOINT_LENGTH**2) / (2 * JOINT_LENGTH * JOINT_LENGTH)
+    beta = -sign * (np.pi - np.arccos(cosAngle1)) + offset
 
-    return (sign * (angle + alpha)), offset - beta
+    if math.isnan(alpha):
+        print("alpha is nan")
+        alpha = 0
+    if math.isnan(beta):
+        print("beta is nan")
+        beta = 0
+
+    return alpha, beta
+
+def joint_extension(x):
+    return x
+    #return sqrt(x/2) * 2
 
 class OpenCatGymEnv(gym.Env):
     """ Gym environment (stable baselines 3) for OpenCat robots.
@@ -58,39 +71,37 @@ class OpenCatGymEnv(gym.Env):
         p.configureDebugVisualizer(p.COV_ENABLE_SINGLE_STEP_RENDERING)
         
         lastPosition = p.getBasePositionAndOrientation(self.robotUid)[0]
-        jointAngles = np.asarray(p.getJointStates(self.robotUid, self.jointIds), dtype=object)[:,0]
-        desiredJointAngles = jointAngles
+        desiredJointAngles = np.array(action)
         ds = np.deg2rad(STEP_ANGLE) # Maximum joint angle derivative (maximum change per step), should be implemented in setJointMotorControlArray
         
         # Use IK to compute the new angles of each joint
         desired_left_front_angle = np.deg2rad(BOUND_ANGLE * action[0])
-        desired_left_front_length = JOINT_LENGTH * (action[1] + 1)
+        desired_left_front_length = JOINT_LENGTH * joint_extension(action[1] + 1)
 
         desired_right_front_angle = np.deg2rad(BOUND_ANGLE * action[2])
-        desired_right_front_length = JOINT_LENGTH * (action[3] + 1)
+        desired_right_front_length = JOINT_LENGTH * joint_extension(action[3] + 1)
 
         desired_left_rear_angle = np.deg2rad(BOUND_ANGLE * action[4])
-        desired_left_rear_length = JOINT_LENGTH * (action[5] + 1)
+        desired_left_rear_length = JOINT_LENGTH * joint_extension(action[5] + 1)
 
         desired_right_rear_angle = np.deg2rad(BOUND_ANGLE * action[6])
-        desired_right_rear_length = JOINT_LENGTH * (action[7] + 1)
+        desired_right_rear_length = JOINT_LENGTH * joint_extension(action[7] + 1)
 
         # Compute the new angles of the joints
-        desiredJointAngles[0:2] = leg_IK(desired_left_front_angle, desired_left_front_length)
-        desiredJointAngles[2:4] = leg_IK(desired_right_front_angle, desired_right_front_length)
-        desiredJointAngles[4:6] = leg_IK(desired_left_rear_angle, desired_left_rear_length, -1)
-        desiredJointAngles[6:8] = leg_IK(desired_right_rear_angle, desired_right_rear_length, -1)
+        desiredJointAngles[0:2] = leg_IK(desired_left_front_angle, desired_left_front_length, np.pi/2)
+        desiredJointAngles[2:4] = leg_IK(desired_right_front_angle, desired_right_front_length, np.pi/2)
+        desiredJointAngles[4:6] = leg_IK(desired_left_rear_angle, desired_left_rear_length, -np.pi/2, -1)
+        desiredJointAngles[6:8] = leg_IK(desired_right_rear_angle, desired_right_rear_length, -np.pi/2, -1)
 
         if(self.step_counter % 2 == 0): # Every 2nd iteration will be added to the joint history
-            self.jointAngles_history = np.append(self.jointAngles_history, desiredJointAngles)
+            self.jointAngles_history = np.append(self.jointAngles_history, action)
             self.jointAngles_history = np.delete(self.jointAngles_history, np.s_[0:8])
 
         #desiredJointAngles = [0] * 8
           
-        # Set new joint angles
-        p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, targetPositions=desiredJointAngles)
+        # Set new joint angles - the forces, positionGains and velocityGains are very important here and will likely not match the real world
+        p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, targetPositions=desiredJointAngles, forces=[0.2]*8, positionGains=[0.015]*8, velocityGains=[0.05]*8)
         p.stepSimulation()
-        #time.sleep(0.8)
         
        # Read robot state (pitch, roll and their derivatives of the torso-link)
         state_robot_pos, state_robot_ang = p.getBasePositionAndOrientation(self.robotUid)
@@ -115,7 +126,7 @@ class OpenCatGymEnv(gym.Env):
             done = True
 
         info = {}
-        self.observation = np.hstack((self.state_robot, self.jointAngles_history/self.boundAngles))
+        self.observation = np.hstack((self.state_robot, self.jointAngles_history))
 
         return np.array(self.observation).astype(np.float32), reward, done, info
 
@@ -161,8 +172,8 @@ class OpenCatGymEnv(gym.Env):
         state_robot_vel = normalize(state_robot_vel.reshape(-1,1))
         self.state_robot = np.concatenate((state_robot_ang, state_robot_vel.reshape(1,-1)[0]))
         
-        # Initialize robot state history with reset position
-        state_joints = np.asarray(p.getJointStates(self.robotUid, self.jointIds), dtype=object)[:,0]   
+        # Initialize robot state history with upright position
+        state_joints = [0, 1] * 4
         self.jointAngles_history = np.tile(state_joints, 20)
         
         self.observation = np.concatenate((self.state_robot ,self.jointAngles_history/self.boundAngles))
