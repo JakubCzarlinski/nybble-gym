@@ -102,7 +102,7 @@ class OpenCatGymEnv(gym.Env):
         #desiredJointAngles = [0] * 8
           
         # Set new joint angles - the forces, positionGains and velocityGains are very important here and will likely not match the real world
-        p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, targetPositions=desiredJointAngles, forces=[0.15]*8, positionGains=[0.015]*8, velocityGains=[0.1]*8)
+        p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, targetPositions=desiredJointAngles, forces=[0.15]*8, positionGains=[0.015]*8, velocityGains=[0.2]*8)
         p.stepSimulation()
         
        # Read robot state (pitch, roll and their derivatives of the torso-link)
@@ -145,7 +145,7 @@ class OpenCatGymEnv(gym.Env):
         planeUid = p.loadURDF("plane.urdf")
         p.changeDynamics(planeUid, -1, lateralFriction = 1.4)
         
-        startPos = [0,0,0.08]
+        startPos = [0,0,0.06]
         startOrientation = p.getQuaternionFromEuler([0,0,0])
 
         self.robotUid = p.loadURDF("models/nybble.urdf",startPos, startOrientation)
