@@ -15,10 +15,10 @@ env = VecNormalize(env, training=False, norm_reward=False, norm_obs=True) # This
 model = SAC.load("sac_opencat")
 obs = env.reset()
 
-for _ in range(500):
+for _ in range(5000):
     action, _state = model.predict(obs, deterministic=True)
     obs, reward, done, info = env.step(action)
     env.render(mode="human")
     if done:
         obs = env.reset()
-    time.sleep(1./240.)
+    time.sleep(1/240)
