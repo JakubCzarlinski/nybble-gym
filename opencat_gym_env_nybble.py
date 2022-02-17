@@ -9,10 +9,12 @@ import math
 
 from sklearn.preprocessing import normalize
 
+
+## Hyper Params
 MAX_EPISODE_LEN = 500  # Number of steps for one training episode
-REWARD_FACTOR = 10
+REWARD_FACTOR = 1000
 REWARD_WEIGHT_1 = 1.0
-BOUND_ANGLE = 40
+BOUND_ANGLE = 30
 STEP_ANGLE = 15 # Maximum angle delta per step
 JOINT_LENGTH = 0.05
 
@@ -50,30 +52,67 @@ class OpenCatGymEnv(gym.Env):
     
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, render=True):
+    def __init__(self, render=False):
         self.step_counter = 0
+        # Store robot state and joint history
         self.state_robot_history = np.array([])
         self.jointAngles_history = np.array([])
+
+        # Max joint angles
         self.boundAngles = np.deg2rad(BOUND_ANGLE)
 
+        # Create the simulation, p.GUI for GUI, p.DIRECT for only training
+        # Use options="--opengl2" if it decides to not work?
         if render:
-            p.connect(p.GUI) #, options="--width=960 --height=540 --mp4=\"training.mp4\" --mp4fps=60") # uncommend to create a video
+            p.connect(p.GUI)#, options="--opengl2") #, options="--width=960 --height=540 --mp4=\"training.mp4\" --mp4fps=60") # uncomment to create a video
         else:
             p.connect(p.DIRECT)
+
+        # Stop rendering
         p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
-        p.resetDebugVisualizerCamera(cameraDistance=0.5, cameraYaw=-10, cameraPitch=-40, cameraTargetPosition=[0.4,0,0])
         
-        # The action space are the 4 leg angles and their extensions   
-        self.action_space = spaces.Box(np.array([-1]*8), np.array([1]*8))
+        # Move camera
+        p.resetDebugVisualizerCamera(cameraDistance=0.5,
+                                     cameraYaw=-10,
+                                     cameraPitch=-40, 
+                                     cameraTargetPosition=[0.4,0,0])
+        
+        # The action space contains the 11 joint angles
+        self.action_space = spaces.Box(np.array([-1]*11), np.array([1]*11))
 
         # The observation space are the torso roll, pitch and the joint angles and a history of the last 20 joint angles
-        self.observation_space = spaces.Box(np.array([-1]*166), np.array([1]*166))
+        # 11 * 20 + 6 = 226       
+        self.observation_space = spaces.Box(np.array([-1]*226), np.array([1]*226))
+ 
+    def get_desired_joint_angles(self, jointAngles, action):
+        """"Adds the action vector to the revolute joints. Joint angles are
+        clipped. `jointAngles` is changed to have the updated angles of the
+        entire robot. The vector returned contains the only the revolute joints
+        of the robot."""
 
-    def step(self, action):
-        p.configureDebugVisualizer(p.COV_ENABLE_SINGLE_STEP_RENDERING)
-        
-        lastPosition = p.getBasePositionAndOrientation(self.robotUid)[0]
-        desiredJointAngles = np.array(action)
+        # Below is the mapping from the old 3D model to the new 3D model.
+        # -----------------------------------------------------------
+        # | PREVIOUS        |    NEW                   | NEW INDEX  |
+        # |=========================================================|
+        # | hip_right       |  R_Rear_Hip_Servo_Thigh  |  i = 1     |
+        # | knee_right      |  R_Rear_Knee_Servo       |  i = 3     |
+        # |---------------------------------------------------------|
+        # | shoulder_right  |  R_Front_Hip_Servo_Thigh |  i = 7     |
+        # | elbow_right     |  R_Front_Knee_Servo      |  i = 9     | 
+        # |---------------------------------------------------------|
+        # | #############   |  Body_Neck_Servo         |  i = 13    |
+        # | #############   |  Neck_Head_Servo         |  i = 14    |
+        # | --------------------------------------------------------|
+        # | #############   |  Tail_Servo_Tail         |  i = 19    |
+        # |---------------------------------------------------------|
+        # | hip_left        |  L_Rear_Hip_Servo_Thigh  |  i = 21    |
+        # | knee_left       |  L_Rear_Knee_Servo       |  i = 23    |
+        # |---------------------------------------------------------|
+        # | shoulder_left   |  L_Front_Hip_Servo_Thigh |  i = 27    |
+        # | elbow_left      |  L_Front_Knee_Servo      |  i = 29    |
+        # -----------------------------------------------------------
+
+        desiredJointAngles = jointAngles
         ds = np.deg2rad(STEP_ANGLE) # Maximum joint angle derivative (maximum change per step), should be implemented in setJointMotorControlArray
         
         # Use IK to compute the new angles of each joint
@@ -90,22 +129,38 @@ class OpenCatGymEnv(gym.Env):
         desired_right_rear_length = JOINT_LENGTH * joint_extension(action[7] + 1)
 
         # Compute the new angles of the joints
-        desiredJointAngles[0:2] = leg_IK(desired_left_front_angle, desired_left_front_length, np.pi/2)
-        desiredJointAngles[2:4] = leg_IK(desired_right_front_angle, desired_right_front_length, np.pi/2)
-        desiredJointAngles[4:6] = leg_IK(desired_left_rear_angle, desired_left_rear_length, -np.pi/2, -1)
-        desiredJointAngles[6:8] = leg_IK(desired_right_rear_angle, desired_right_rear_length, -np.pi/2, -1)
+        desiredJointAngles[9:11] = leg_IK(desired_left_front_angle, desired_left_front_length, np.pi/2)
+        desiredJointAngles[2:4] = leg_IK(desired_right_front_angle, desired_right_front_length, -np.pi/2, -1)
+        desiredJointAngles[7:9] = leg_IK(desired_left_rear_angle, desired_left_rear_length, -np.pi/2, -1)
+        desiredJointAngles[0:2] = leg_IK(desired_right_rear_angle, desired_right_rear_length, np.pi/2)
+
+        desiredJointAngles[4] += ds * action[8]
+        desiredJointAngles[5] += ds * action[9]
+        desiredJointAngles[6] += ds * action[10]
+
+        return desiredJointAngles
+
+
+    def step(self, action):
+        # `action` is a vector of values -1 <= x <= 1 .
+
+        p.configureDebugVisualizer(p.COV_ENABLE_SINGLE_STEP_RENDERING)
+        
+        lastPosition = p.getBasePositionAndOrientation(self.robotUid)[0]
+        jointAngles = np.asarray(p.getJointStates(self.robotUid, self.jointIds), dtype=object)[:,0]
 
         if(self.step_counter % 2 == 0): # Every 2nd iteration will be added to the joint history
             self.jointAngles_history = np.append(self.jointAngles_history, action)
-            self.jointAngles_history = np.delete(self.jointAngles_history, np.s_[0:8])
+            self.jointAngles_history = np.delete(self.jointAngles_history, np.s_[0:11])
 
-        #desiredJointAngles = [0] * 8
+        desiredJointAngles = self.get_desired_joint_angles(jointAngles, action)
           
         # Set new joint angles - the forces, positionGains and velocityGains are very important here and will likely not match the real world
-        p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, targetPositions=desiredJointAngles, forces=[0.15]*8, positionGains=[0.015]*8, velocityGains=[0.2]*8)
+        p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, targetPositions=desiredJointAngles, forces=[2.5]*11, positionGains=[0.015]*11, velocityGains=[0.2]*11)
         p.stepSimulation()
         
-       # Read robot state (pitch, roll and their derivatives of the torso-link)
+        # Read robot state (pitch, roll and their derivatives of the torso-link)
+        # Get pitch and roll of torso
         state_robot_pos, state_robot_ang = p.getBasePositionAndOrientation(self.robotUid)
         state_robot_ang_euler = np.asarray(p.getEulerFromQuaternion(state_robot_ang)[0:2])
         state_robot_vel = np.asarray(p.getBaseVelocity(self.robotUid)[1])
@@ -130,41 +185,45 @@ class OpenCatGymEnv(gym.Env):
             reward = 0
             done = True
 
+        # No debug info
         info = {}
         self.observation = np.hstack((self.state_robot, self.jointAngles_history))
 
         return np.array(self.observation).astype(np.float32), reward, done, info
-
-    def reset(self):
+        
+    def reset(self):     
+        """Reset the simulation to its original state."""
+        
         self.step_counter = 0
         p.resetSimulation()
-        p.configureDebugVisualizer(p.COV_ENABLE_RENDERING,0) # Disable rendering during loading
+
+        # Disable rendering during loading
+        p.configureDebugVisualizer(p.COV_ENABLE_RENDERING,0) 
         p.setGravity(0,0,-9.81)
         
         p.setAdditionalSearchPath(pybullet_data.getDataPath()) 
+
         planeUid = p.loadURDF("plane.urdf")
-        p.changeDynamics(planeUid, -1, lateralFriction = 1.4)
+        friction = np.random.uniform(0.5,0.9,1)[0]
+        p.changeDynamics(planeUid, -1, lateralFriction = friction)
         
-        startPos = [0,0,0.06]
+        startPos = [0,0,0.03]
         startOrientation = p.getQuaternionFromEuler([0,0,0])
 
-        self.robotUid = p.loadURDF("models/nybble.urdf",startPos, startOrientation)
+        self.robotUid = p.loadURDF("models/CatModel.urdf",
+                                   startPos,
+                                   startOrientation, 
+                                   flags=p.URDF_USE_INERTIA_FROM_FILE)
         
+        # Get joint IDs of robot.
         self.jointIds = []
-        paramIds = []
-
         for j in range(p.getNumJoints(self.robotUid)):
-            info = p.getJointInfo(self.robotUid, j)
-            #print(info)
-            jointName = info[1]
-            jointType = info[2]
 
-            if (jointType == p.JOINT_PRISMATIC or jointType == p.JOINT_REVOLUTE):
+            jointType = p.getJointInfo(self.robotUid, j)[2]
+            if (jointType == p.JOINT_REVOLUTE):
                 self.jointIds.append(j)
-                paramIds.append(p.addUserDebugParameter(jointName.decode("utf-8")))
 
-        action = [0, 0.75] * 4
-        desiredJointAngles = action
+        action = [0, 0.75] * 4 + [0] * 3
 
         desired_left_front_angle = np.deg2rad(BOUND_ANGLE * action[0])
         desired_left_front_length = JOINT_LENGTH * joint_extension(action[1] + 1)
@@ -178,20 +237,25 @@ class OpenCatGymEnv(gym.Env):
         desired_right_rear_angle = np.deg2rad(BOUND_ANGLE * action[6])
         desired_right_rear_length = JOINT_LENGTH * joint_extension(action[7] + 1)
 
-        desiredJointAngles[0:2] = leg_IK(desired_left_front_angle, desired_left_front_length, np.pi/2)
-        desiredJointAngles[2:4] = leg_IK(desired_right_front_angle, desired_right_front_length, np.pi/2)
-        desiredJointAngles[4:6] = leg_IK(desired_left_rear_angle, desired_left_rear_length, -np.pi/2, -1)
-        desiredJointAngles[6:8] = leg_IK(desired_right_rear_angle, desired_right_rear_length, -np.pi/2, -1)
-    
-        # Reset joint position to rest pose
-        for i in range(len(paramIds)):
-            p.resetJointState(self.robotUid, i, desiredJointAngles[i])
+        resetPos = np.array([np.pi / 4, 0, -np.pi / 4, 0, 0, 0, 0, -np.pi / 4, 0, np.pi / 4, 0])
 
-        # Read robot state (pitch, roll and their derivatives of the torso-link)
+        resetPos[9:11] = leg_IK(desired_left_front_angle, desired_left_front_length, np.pi/2)
+        resetPos[2:4] = leg_IK(desired_right_front_angle, desired_right_front_length, -np.pi/2, -1)
+        resetPos[7:9] = leg_IK(desired_left_rear_angle, desired_left_rear_length, -np.pi/2, -1)
+        resetPos[0:2] = leg_IK(desired_right_rear_angle, desired_right_rear_length, np.pi/2, 1)
+
+        for i, j in enumerate(self.jointIds):
+            p.resetJointState(self.robotUid, j, resetPos[i])
+
+
+        # Get pitch and roll of torso
         state_robot_ang = p.getBasePositionAndOrientation(self.robotUid)[1]
+
+        # Get angular velocity of robot torso and normalise
         state_robot_vel = np.asarray(p.getBaseVelocity(self.robotUid)[1])
         state_robot_vel = state_robot_vel[0:2]
         state_robot_vel = normalize(state_robot_vel.reshape(-1,1))
+
         self.state_robot = np.concatenate((state_robot_ang, state_robot_vel.reshape(1,-1)[0]))
         
         # Initialize robot state history with reset position
@@ -211,7 +275,6 @@ class OpenCatGymEnv(gym.Env):
     def is_fallen(self):
         """ Check if robot is fallen. It becomes "True", when pitch or roll is more than 1 rad.
         """
-
         position, orientation = p.getBasePositionAndOrientation(self.robotUid)
         orientation = p.getEulerFromQuaternion(orientation)
         is_fallen = np.fabs(orientation[0]) > 1 or np.fabs(orientation[1]) > 1
