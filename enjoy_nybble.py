@@ -21,4 +21,4 @@ for _ in range(5000):
     env.render(mode="human")
     if done:
         obs = env.reset()
-    time.sleep(1/240)
+    time.sleep(1/60)

@@ -18,7 +18,7 @@ if __name__ == '__main__':
         #model = SAC.load("sac_opencat", env, verbose=1, tensorboard_log="./tensorboard/")
         #model.load_replay_buffer("sac_replay_buffer")
 
-        model.learn(total_timesteps=500000)
+        model.learn(total_timesteps=800000)
         model.save("sac_opencat")
         model.save_replay_buffer("sac_replay_buffer")
     except KeyboardInterrupt:

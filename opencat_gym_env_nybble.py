@@ -12,8 +12,7 @@ from sklearn.preprocessing import normalize
 
 ## Hyper Params
 MAX_EPISODE_LEN = 500  # Number of steps for one training episode
-REWARD_FACTOR = 1000
-REWARD_WEIGHT_1 = 1.0
+REWARD_FACTOR = 10
 BOUND_ANGLE = 30
 STEP_ANGLE = 15 # Maximum angle delta per step
 JOINT_LENGTH = 0.05
@@ -67,6 +66,8 @@ class OpenCatGymEnv(gym.Env):
             p.connect(p.GUI)#, options="--opengl2") #, options="--width=960 --height=540 --mp4=\"training.mp4\" --mp4fps=60") # uncomment to create a video
         else:
             p.connect(p.DIRECT)
+
+        p.setPhysicsEngineParameter(fixedTimeStep=1.0/60)
 
         # Stop rendering
         p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
@@ -138,6 +139,11 @@ class OpenCatGymEnv(gym.Env):
         desiredJointAngles[5] += ds * action[9]
         desiredJointAngles[6] += ds * action[10]
 
+        # TODO: Clip the joint angles for the tail, neck and head
+        desiredJointAngles[4] = np.clip(desiredJointAngles[4], -np.pi/2, np.pi/2)
+        desiredJointAngles[5] = np.clip(desiredJointAngles[5], -np.pi/2, np.pi/2)
+        desiredJointAngles[6] = np.clip(desiredJointAngles[6], -np.pi/2, np.pi/2)
+
         return desiredJointAngles
 
 
@@ -149,14 +155,18 @@ class OpenCatGymEnv(gym.Env):
         lastPosition = p.getBasePositionAndOrientation(self.robotUid)[0]
         jointAngles = np.asarray(p.getJointStates(self.robotUid, self.jointIds), dtype=object)[:,0]
 
-        if(self.step_counter % 2 == 0): # Every 2nd iteration will be added to the joint history
-            self.jointAngles_history = np.append(self.jointAngles_history, action)
-            self.jointAngles_history = np.delete(self.jointAngles_history, np.s_[0:11])
+        #if(self.step_counter % 2 == 0): # Every 2nd iteration will be added to the joint history
+        self.jointAngles_history = np.append(self.jointAngles_history, action)
+        self.jointAngles_history = np.delete(self.jointAngles_history, np.s_[0:11])
 
         desiredJointAngles = self.get_desired_joint_angles(jointAngles, action)
           
         # Set new joint angles - the forces, positionGains and velocityGains are very important here and will likely not match the real world
-        p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, targetPositions=desiredJointAngles, forces=[2.5]*11, positionGains=[0.015]*11, velocityGains=[0.2]*11)
+        p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, desiredJointAngles)#, forces=[6]*11, positionGains=[0.05]*11, velocityGains=[0.8]*11)
+        
+        # Step through the simulation 3 times to simulate 20hz input
+        p.stepSimulation()
+        p.stepSimulation()
         p.stepSimulation()
         
         # Read robot state (pitch, roll and their derivatives of the torso-link)
@@ -176,7 +186,7 @@ class OpenCatGymEnv(gym.Env):
         vertical_factor = 0
         if currentPosition[2] > 0.08:
             vertical_factor = abs(currentPosition[2] - lastPosition[2]) / 2
-        reward = REWARD_WEIGHT_1 * (foward_factor - horizontal_factor - vertical_factor) * REWARD_FACTOR
+        reward = (foward_factor - horizontal_factor - vertical_factor) * REWARD_FACTOR
         done = False
         
         # Stop criteria of current learning episode: Number of steps or robot fell
@@ -207,7 +217,7 @@ class OpenCatGymEnv(gym.Env):
         friction = np.random.uniform(0.5,0.9,1)[0]
         p.changeDynamics(planeUid, -1, lateralFriction = friction)
         
-        startPos = [0,0,0.03]
+        startPos = [0,0,0.04]
         startOrientation = p.getQuaternionFromEuler([0,0,0])
 
         self.robotUid = p.loadURDF("models/CatModel.urdf",
