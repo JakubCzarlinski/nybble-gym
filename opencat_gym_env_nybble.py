@@ -11,7 +11,7 @@ from sklearn.preprocessing import normalize
 
 
 ## Hyper Params
-MAX_EPISODE_LEN = 500  # Number of steps for one training episode
+MAX_EPISODE_LEN = 50  # Number of steps for one training episode
 REWARD_FACTOR = 10
 BOUND_ANGLE = 30
 STEP_ANGLE = 15 # Maximum angle delta per step
@@ -214,7 +214,7 @@ class OpenCatGymEnv(gym.Env):
         p.setAdditionalSearchPath(pybullet_data.getDataPath()) 
 
         planeUid = p.loadURDF("plane.urdf")
-        friction = np.random.uniform(0.5,0.9,1)[0]
+        friction = 1.4
         p.changeDynamics(planeUid, -1, lateralFriction = friction)
         
         startPos = [0,0,0.04]
