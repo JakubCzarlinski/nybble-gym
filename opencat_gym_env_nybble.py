@@ -130,8 +130,8 @@ class OpenCatGymEnv(gym.Env):
         desired_right_rear_length = JOINT_LENGTH * joint_extension(action[7] + 1)
 
         # Compute the new angles of the joints
-        desiredJointAngles[9:11] = leg_IK(desired_left_front_angle, desired_left_front_length, np.pi/2)
-        desiredJointAngles[2:4] = leg_IK(desired_right_front_angle, desired_right_front_length, -np.pi/2, -1)
+        desiredJointAngles[9:11] = leg_IK(desired_left_front_angle + -np.pi / 4, desired_left_front_length, np.pi/2)
+        desiredJointAngles[2:4] = leg_IK(desired_right_front_angle + np.pi / 4, desired_right_front_length, -np.pi/2, -1)
         desiredJointAngles[7:9] = leg_IK(desired_left_rear_angle, desired_left_rear_length, -np.pi/2, -1)
         desiredJointAngles[0:2] = leg_IK(desired_right_rear_angle, desired_right_rear_length, np.pi/2)
 
