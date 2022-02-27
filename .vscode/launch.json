@@ -17,6 +17,13 @@
             "request": "launch",
             "program": "enjoy_nybble.py",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
         }
     ]
 }
