@@ -6,14 +6,12 @@ import pybullet as p
 import pybullet_data
 import time
 import math
-
 from sklearn.preprocessing import normalize
 
-
 ## Hyper Params
-MAX_EPISODE_LEN = 50  # Number of steps for one training episode
+MAX_EPISODE_LEN = 150  # Number of steps for one training episode
 REWARD_FACTOR = 10
-BOUND_ANGLE = 30
+BOUND_ANGLE = 45
 STEP_ANGLE = 15 # Maximum angle delta per step
 JOINT_LENGTH = 0.05
 
@@ -42,8 +40,7 @@ def leg_IK(angle, length, offset, sign=1):
     return alpha, beta
 
 def joint_extension(x):
-    return x
-    #return sqrt(x/2) * 2
+    return 2 - ( -( (x-1)/2 ))**2
 
 class OpenCatGymEnv(gym.Env):
     """ Gym environment (stable baselines 3) for OpenCat robots.
@@ -118,20 +115,20 @@ class OpenCatGymEnv(gym.Env):
         
         # Use IK to compute the new angles of each joint
         desired_left_front_angle = np.deg2rad(BOUND_ANGLE * action[0])
-        desired_left_front_length = JOINT_LENGTH * joint_extension(action[1] + 1)
+        desired_left_front_length = JOINT_LENGTH * joint_extension(action[1])
 
         desired_right_front_angle = np.deg2rad(BOUND_ANGLE * action[2])
-        desired_right_front_length = JOINT_LENGTH * joint_extension(action[3] + 1)
+        desired_right_front_length = JOINT_LENGTH * joint_extension(action[3])
 
         desired_left_rear_angle = np.deg2rad(BOUND_ANGLE * action[4])
-        desired_left_rear_length = JOINT_LENGTH * joint_extension(action[5] + 1)
+        desired_left_rear_length = JOINT_LENGTH * joint_extension(action[5])
 
         desired_right_rear_angle = np.deg2rad(BOUND_ANGLE * action[6])
-        desired_right_rear_length = JOINT_LENGTH * joint_extension(action[7] + 1)
+        desired_right_rear_length = JOINT_LENGTH * joint_extension(action[7])
 
         # Compute the new angles of the joints
-        desiredJointAngles[9:11] = leg_IK(desired_left_front_angle + -np.pi / 4, desired_left_front_length, np.pi/2)
-        desiredJointAngles[2:4] = leg_IK(desired_right_front_angle + np.pi / 4, desired_right_front_length, -np.pi/2, -1)
+        desiredJointAngles[9:11] = leg_IK(desired_left_front_angle + -np.pi / 8, desired_left_front_length, np.pi/2)
+        desiredJointAngles[2:4] = leg_IK(desired_right_front_angle + np.pi / 8, desired_right_front_length, 0, -1)
         desiredJointAngles[7:9] = leg_IK(desired_left_rear_angle, desired_left_rear_length, -np.pi/2, -1)
         desiredJointAngles[0:2] = leg_IK(desired_right_rear_angle, desired_right_rear_length, np.pi/2)
 
@@ -192,7 +189,7 @@ class OpenCatGymEnv(gym.Env):
         # Stop criteria of current learning episode: Number of steps or robot fell
         self.step_counter += 1
         if (self.step_counter > MAX_EPISODE_LEN) or self.is_fallen():
-            reward = 0
+            reward = (self.step_counter - MAX_EPISODE_LEN) / (MAX_EPISODE_LEN / 5)
             done = True
 
         # No debug info
@@ -236,23 +233,23 @@ class OpenCatGymEnv(gym.Env):
         action = [0, 0.75] * 4 + [0] * 3
 
         desired_left_front_angle = np.deg2rad(BOUND_ANGLE * action[0])
-        desired_left_front_length = JOINT_LENGTH * joint_extension(action[1] + 1)
+        desired_left_front_length = JOINT_LENGTH * joint_extension(action[1])
 
         desired_right_front_angle = np.deg2rad(BOUND_ANGLE * action[2])
-        desired_right_front_length = JOINT_LENGTH * joint_extension(action[3] + 1)
+        desired_right_front_length = JOINT_LENGTH * joint_extension(action[3])
 
         desired_left_rear_angle = np.deg2rad(BOUND_ANGLE * action[4])
-        desired_left_rear_length = JOINT_LENGTH * joint_extension(action[5] + 1)
+        desired_left_rear_length = JOINT_LENGTH * joint_extension(action[5])
 
         desired_right_rear_angle = np.deg2rad(BOUND_ANGLE * action[6])
-        desired_right_rear_length = JOINT_LENGTH * joint_extension(action[7] + 1)
+        desired_right_rear_length = JOINT_LENGTH * joint_extension(action[7])
 
         resetPos = np.array([np.pi / 4, 0, -np.pi / 4, 0, 0, 0, 0, -np.pi / 4, 0, np.pi / 4, 0])
 
         resetPos[9:11] = leg_IK(desired_left_front_angle, desired_left_front_length, np.pi/2)
-        resetPos[2:4] = leg_IK(desired_right_front_angle, desired_right_front_length, -np.pi/2, -1)
+        resetPos[2:4] = leg_IK(desired_right_front_angle, desired_right_front_length, 0, -1)
         resetPos[7:9] = leg_IK(desired_left_rear_angle, desired_left_rear_length, -np.pi/2, -1)
-        resetPos[0:2] = leg_IK(desired_right_rear_angle, desired_right_rear_length, np.pi/2, 1)
+        resetPos[0:2] = leg_IK(desired_right_rear_angle, desired_right_rear_length, np.pi/2)
 
         for i, j in enumerate(self.jointIds):
             p.resetJointState(self.robotUid, j, resetPos[i])

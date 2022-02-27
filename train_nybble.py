@@ -9,9 +9,7 @@ if __name__ == '__main__':
     # Training
     try:
         env = OpenCatGymEnv(render=False)
-        env = make_vec_env(lambda: env, n_envs=1) # 25 for PPO
-        env = VecNormalize(env, training=True, norm_obs=True, norm_reward=True) # This might be necessary or break things, https://stable-baselines3.readthedocs.io/en/master/guide/examples.html#pybullet-normalizing-input-features
-
+        
         policy_kwargs = dict(net_arch=[128, 128])
         model = SAC("MlpPolicy", env, policy_kwargs=policy_kwargs, verbose=1, tensorboard_log="./tensorboard/")
 
