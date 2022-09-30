@@ -136,7 +136,6 @@ class OpenCatGymEnv(gym.Env):
         desiredJointAngles[5] += ds * action[9]
         desiredJointAngles[6] += ds * action[10]
 
-        # TODO: Clip the joint angles for the tail, neck and head
         desiredJointAngles[4] = np.clip(desiredJointAngles[4], -np.pi/2, np.pi/2)
         desiredJointAngles[5] = np.clip(desiredJointAngles[5], -np.pi/2, np.pi/2)
         desiredJointAngles[6] = np.clip(desiredJointAngles[6], -np.pi/2, np.pi/2)
@@ -161,6 +160,9 @@ class OpenCatGymEnv(gym.Env):
         # Set new joint angles - the forces, positionGains and velocityGains are very important here and will likely not match the real world
         p.setJointMotorControlArray(self.robotUid, self.jointIds, p.POSITION_CONTROL, desiredJointAngles)#, forces=[6]*11, positionGains=[0.05]*11, velocityGains=[0.8]*11)
         
+        desired_left_front_angle = np.deg2rad(BOUND_ANGLE * action[0])
+        desired_right_front_angle = np.deg2rad(BOUND_ANGLE * action[2])
+
         # Step through the simulation 3 times to simulate 20hz input
         p.stepSimulation()
         p.stepSimulation()
@@ -178,12 +180,20 @@ class OpenCatGymEnv(gym.Env):
         
         # Reward is the advance in x-direction - deviation in the y-direction
         currentPosition = p.getBasePositionAndOrientation(self.robotUid)[0] # Position of torso-link
-        foward_factor = currentPosition[0] - lastPosition[0]
+        forward_factor = currentPosition[0] - lastPosition[0]
         horizontal_factor = (abs(currentPosition[1]) - abs(lastPosition[1])) / 2
         vertical_factor = 0
         if currentPosition[2] > 0.08:
             vertical_factor = abs(currentPosition[2] - lastPosition[2]) / 2
-        reward = (foward_factor - horizontal_factor - vertical_factor) * REWARD_FACTOR
+
+
+        weights = [100, 0.0025, 0.05, 0, 100, 100] # 100, 0.005, 0.05, 1, 100, 100
+
+        orientation = p.getEulerFromQuaternion(orientation)    
+        
+        angle_factor = sum((desiredJointAngles - self.jointAngles_history[0]) - (self.jointAngles_history[0] - self.jointAngles_history[1]))
+        front_legs_factor = (max(-0.3 - desired_left_front_angle, 0 )) + (max(-0.3 - desired_right_front_angle, 0 ))
+        reward = (weights[0] * forward_factor) - (weights[1] * abs(angle_factor)) - (weights[2] * abs( np.fabs(orientation[0]))) - (weights[3] * front_legs_factor) - (weights[4] * horizontal_factor) - (weights[5] * vertical_factor) 
         done = False
         
         # Stop criteria of current learning episode: Number of steps or robot fell
