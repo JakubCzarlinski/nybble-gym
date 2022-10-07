@@ -163,20 +163,19 @@ class OpenCatGymEnv(gym.Env):
         desired_left_front_angle = np.deg2rad(BOUND_ANGLE * action[0])
         desired_right_front_angle = np.deg2rad(BOUND_ANGLE * action[2])
 
-        # Step through the simulation 3 times to simulate 20hz input
+        # Step through the simulation 3 times to simulate 20hz input 
         p.stepSimulation()
         p.stepSimulation()
         p.stepSimulation()
         
         # Read robot state (pitch, roll and their derivatives of the torso-link)
         # Get pitch and roll of torso
-        state_robot_pos, state_robot_ang = p.getBasePositionAndOrientation(self.robotUid)
-        state_robot_ang_euler = np.asarray(p.getEulerFromQuaternion(state_robot_ang)[0:2])
+        robot_pos, robot_orientation = p.getBasePositionAndOrientation(self.robotUid)
         state_robot_vel = np.asarray(p.getBaseVelocity(self.robotUid)[1])
         state_robot_vel = state_robot_vel[0:2]
         state_robot_vel_norm = normalize(state_robot_vel.reshape(-1,1))
 
-        self.state_robot = np.concatenate((state_robot_ang, state_robot_vel_norm.reshape(1,-1)[0]))
+        self.state_robot = np.concatenate((robot_orientation, state_robot_vel_norm.reshape(1,-1)[0]))
         
         # Reward is the advance in x-direction - deviation in the y-direction
         currentPosition = p.getBasePositionAndOrientation(self.robotUid)[0] # Position of torso-link
@@ -189,11 +188,10 @@ class OpenCatGymEnv(gym.Env):
 
         weights = [100, 0.0025, 0.05, 0, 100, 100] # 100, 0.005, 0.05, 1, 100, 100
 
-        orientation = p.getEulerFromQuaternion(orientation)    
         
         angle_factor = sum((desiredJointAngles - self.jointAngles_history[0]) - (self.jointAngles_history[0] - self.jointAngles_history[1]))
         front_legs_factor = (max(-0.3 - desired_left_front_angle, 0 )) + (max(-0.3 - desired_right_front_angle, 0 ))
-        reward = (weights[0] * forward_factor) - (weights[1] * abs(angle_factor)) - (weights[2] * abs( np.fabs(orientation[0]))) - (weights[3] * front_legs_factor) - (weights[4] * horizontal_factor) - (weights[5] * vertical_factor) 
+        reward = (weights[0] * forward_factor) - (weights[1] * abs(angle_factor)) - (weights[2] * abs( np.fabs(robot_orientation[0]))) - (weights[3] * front_legs_factor) - (weights[4] * horizontal_factor) - (weights[5] * vertical_factor) 
         done = False
         
         # Stop criteria of current learning episode: Number of steps or robot fell
