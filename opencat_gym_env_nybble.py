@@ -6,6 +6,7 @@ import pybullet_data
 
 from gym import Env
 from gym import spaces
+from numba import jit
 from sklearn.preprocessing import normalize
 
 ## Hyper Params
@@ -16,6 +17,7 @@ STEP_ANGLE = 15 # Maximum angle delta per step
 JOINT_LENGTH = 0.05
 JOINT_LENGTH_SQUARED = JOINT_LENGTH**2
 
+@jit(nopython=True)
 def leg_ik(angle, length, offset, sign=1):
     """
     Returns each angle in the joint of the leg, to match the desired swing angle
@@ -42,7 +44,7 @@ def leg_ik(angle, length, offset, sign=1):
 
     return upper_joint, lower_joint
 
-
+@jit(nopython=True)
 def joint_extension(angle):
     """Returns the length of the leg joint, given the angle of the joint."""
     return 2 - ((1 - angle) / 2)**2
@@ -99,6 +101,7 @@ class OpenCatGymEnv(Env):
         # 11 * 20 + 6 = 226
         self.observation_space = spaces.Box(np.array([-1]*226), np.array([1]*226))
 
+    @jit(forceobj=True)
     def get_desired_joint_angles(self, joint_angles, action):
         """"Adds the action vector to the revolute joints. Joint angles are
         clipped. `joint_angles` is changed to have the updated angles of the
@@ -107,25 +110,25 @@ class OpenCatGymEnv(Env):
 
         # Below is the mapping from the old 3D model to the new 3D model.
         # -----------------------------------------------------------
-        # | PREVIOUS        |    NEW                   | NEW INDEX  |
-        # |=========================================================|
+        # | PREVIOUS        |    NEW                   | NEW INDEX  | ACTION INDEX |
+        # |========================================================================|
         # | hip_right       |  R_Rear_Hip_Servo_Thigh  |  i = 1     |
         # | knee_right      |  R_Rear_Knee_Servo       |  i = 3     |
-        # |---------------------------------------------------------|
+        # |------------------------------------------------------------------------|
         # | shoulder_right  |  R_Front_Hip_Servo_Thigh |  i = 7     |
         # | elbow_right     |  R_Front_Knee_Servo      |  i = 9     |
-        # |---------------------------------------------------------|
+        # |------------------------------------------------------------------------|
         # | #############   |  Body_Neck_Servo         |  i = 13    |
         # | #############   |  Neck_Head_Servo         |  i = 14    |
-        # | --------------------------------------------------------|
+        # | -----------------------------------------------------------------------|
         # | #############   |  Tail_Servo_Tail         |  i = 19    |
-        # |---------------------------------------------------------|
+        # |------------------------------------------------------------------------|
         # | hip_left        |  L_Rear_Hip_Servo_Thigh  |  i = 21    |
         # | knee_left       |  L_Rear_Knee_Servo       |  i = 23    |
-        # |---------------------------------------------------------|
+        # |------------------------------------------------------------------------|
         # | shoulder_left   |  L_Front_Hip_Servo_Thigh |  i = 27    |
         # | elbow_left      |  L_Front_Knee_Servo      |  i = 29    |
-        # -----------------------------------------------------------
+        # --------------------------------------------------------------------------
 
         desired_joint_angles = joint_angles
 
@@ -143,9 +146,9 @@ class OpenCatGymEnv(Env):
         desired_right_rear_length = JOINT_LENGTH * joint_extension(action[7])
 
         # Compute the new angles of the joints
-        desired_joint_angles[9:11] = leg_ik(
-            angle=(desired_left_front_angle - np.pi/8),
-            length=desired_left_front_length,
+        desired_joint_angles[0:2] = leg_ik(
+            angle=desired_right_rear_angle,
+            length=desired_right_rear_length,
             offset=np.pi/2,
         )
         desired_joint_angles[2:4] = leg_ik(
@@ -160,9 +163,9 @@ class OpenCatGymEnv(Env):
             offset=-np.pi/2,
             sign=-1,
         )
-        desired_joint_angles[0:2] = leg_ik(
-            angle=desired_right_rear_angle,
-            length=desired_right_rear_length,
+        desired_joint_angles[9:11] = leg_ik(
+            angle=(desired_left_front_angle - np.pi/8),
+            length=desired_left_front_length,
             offset=np.pi/2,
         )
 
@@ -171,6 +174,7 @@ class OpenCatGymEnv(Env):
 
         return desired_joint_angles
 
+    @jit(forceobj=True)
     def step(self, action):
         # `action` is a vector of values -1 <= x <= 1 .
         p.configureDebugVisualizer(p.COV_ENABLE_SINGLE_STEP_RENDERING)
@@ -253,6 +257,7 @@ class OpenCatGymEnv(Env):
 
         return np.array(self.observation).astype(np.float32), reward, done, info
 
+    @jit(forceobj=True)
     def reward_function(self,
                         forward_factor,
                         angle_factor,
@@ -318,12 +323,11 @@ class OpenCatGymEnv(Env):
         desired_right_rear_angle = np.deg2rad(BOUND_ANGLE * action[6])
         desired_right_rear_length = JOINT_LENGTH * joint_extension(action[7])
 
-        reset_pos = np.array([np.pi / 4, 0, -np.pi / 4, 0, 0, 0, 0, -np.pi / 4, 0, np.pi / 4, 0])
-
-        reset_pos[9:11] = leg_ik(desired_left_front_angle, desired_left_front_length, np.pi/2)
+        reset_pos = np.random.uniform(-np.pi / 8, np.pi / 8, 11)
+        reset_pos[0:2] = leg_ik(desired_right_rear_angle, desired_right_rear_length, np.pi/2)
         reset_pos[2:4] = leg_ik(desired_right_front_angle, desired_right_front_length, 0, -1)
         reset_pos[7:9] = leg_ik(desired_left_rear_angle, desired_left_rear_length, -np.pi/2, -1)
-        reset_pos[0:2] = leg_ik(desired_right_rear_angle, desired_right_rear_length, np.pi/2)
+        reset_pos[9:11] = leg_ik(desired_left_front_angle, desired_left_front_length, np.pi/2)
 
         for i, j in enumerate(self.joint_ids):
             p.resetJointState(self.robot_uid, j, reset_pos[i])
