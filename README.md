@@ -1,5 +1,5 @@
 # Nybble Gym
-A gym reinforcement learning environment for the Nybble OpenCat robot based on Stable-Baselines3 and PyBullet.
+A gym reinforcement learning environment for the Nybble OpenCat robot based on Stable-Baselines3 and PyBullet, using Python 3.9.2.
 
 ## Usage
 You should use a virtual environment. (python3 -m venv .venv)  
