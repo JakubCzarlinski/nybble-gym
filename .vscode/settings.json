@@ -1,0 +1,9 @@
+{
+    "python.analysis.typeCheckingMode": "basic",
+    "python.linting.enabled": true,
+    "python.linting.pylintArgs": [
+        "--generated-members=cv2",
+        "--extension-pkg-whitelist=pybullet"
+    ],
+    "python.linting.pylintEnabled": true,
+}

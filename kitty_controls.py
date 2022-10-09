@@ -94,7 +94,7 @@ def compute_desired_leg_joint_angles(joint_angles: npt.NDArray[np.float32],
 
 @jit(nopython=True)
 def compute_desired_other_joint_angles(joint_angles: npt.NDArray[np.float32],
-                                     action: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+                                       action: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
     """Compute the desired joint angles for head, neck and tail, given the action."""
 
     joint_angles[4:7] += STEP_ANGLE_RAD * action[8:11]
