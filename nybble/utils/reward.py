@@ -12,7 +12,7 @@ def reward_function(current_pos: npt.NDArray[np.float32],
     weights = np.array([50, -50, -5, -50, -0.005], dtype=np.float32)
 
     # Reward robot for moving forward
-    forward_factor = current_pos[0] - previous_pos[1]
+    forward_factor = current_pos[0] - previous_pos[0]
 
     # Penalise robot for swaying to the side.
     horizontal_factor = abs(current_pos[1] - previous_pos[1])
