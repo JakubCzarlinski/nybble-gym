@@ -1,5 +1,6 @@
 """Create a custom gym environment for the Nybble cat robot."""
 from typing import Sequence
+import time
 import numpy as np
 import numpy.typing as npt
 import pybullet as p
@@ -7,60 +8,22 @@ import pybullet_data
 
 from gym import Env
 from gym import spaces
-from numba import jit
 from sklearn.preprocessing import normalize
 
-import kitty_controls
+from .utils import controls
+from .utils.reward import reward_function
 
 ## Hyper Params
-MAX_EPISODE_LEN = 150  # Number of steps for one training episode
+MAX_EPISODE_LEN = 20  # Number of steps for one training episode
+ACTION_HISTORY = 10
 
-@jit('float32(float32[:], float32[:], float32[:], float32[::], float32[:])', nopython=True)
-def reward_function(current_pos: npt.NDArray[np.float32],
-                    previous_pos: npt.NDArray[np.float32],
-                    current_state: npt.NDArray[np.float32],
-                    previous_angles: npt.NDArray[np.float32],
-                    desired_angles: npt.NDArray[np.float32]) -> np.float32:
-    """Calculate reward based on the current state of the robot."""
-    weights = np.array([50, -50, -5, -50, -0.005], dtype=np.float32)
-
-    # Reward robot for moving forward
-    forward_factor = current_pos[0] - previous_pos[1]
-
-    # Penalise robot for swaying to the side.
-    horizontal_factor = abs(current_pos[1] - previous_pos[1])
-
-    # Penalise if the robot is not standing upright.
-    vertical_factor = 0
-    if current_pos[2] < 0.075:
-        vertical_factor = abs(current_pos[2] - previous_pos[2])
-
-    # Penalise robot for not facing forward.
-    orientation_factor = abs(np.fabs(current_state[0]))
-
-    # Penalise robot for moving - this requires energy.
-    angle_factor = abs(sum(
-        (desired_angles - previous_angles[0]) - (previous_angles[0] - previous_angles[1])
-    ))
-
-    factors = np.array([
-        forward_factor,
-        horizontal_factor,
-        vertical_factor,
-        orientation_factor,
-        angle_factor,
-    ], dtype=np.float32)
-
-    return np.dot(factors, weights)
-
-
-class OpenCatGymEnv(Env):
+class PybulletGym(Env):
     """ Gym environment (stable baselines 3) for OpenCat robots.
     """
 
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, render=False):
+    def __init__(self, render=False, realtime=False):
         """ Initialize the environment."""
         # Number of time steps the environment has been running for.
         self.step_counter = 0
@@ -74,6 +37,8 @@ class OpenCatGymEnv(Env):
             #           options="--width=960 --height=540 --mp4=\"training.mp4\" --mp4fps=60")
         else:
             p.connect(p.DIRECT)
+            
+        self.realtime = realtime
 
         p.setPhysicsEngineParameter(fixedTimeStep=1.0/60.0)
 
@@ -88,16 +53,15 @@ class OpenCatGymEnv(Env):
             cameraTargetPosition=[0.4, 0, 0],
         )
 
-        # The action space contains the 11 joint angles
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(11,), dtype=np.float32)
+        # The action space contains the 8 joint angles
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,), dtype=np.float32)
 
-        # The observation space are the torso roll, pitch and the joint angles and a history of the
-        # last 20 joint angles (11 * 20 + 6 = 226)
-        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(226,), dtype=np.float32)
+        # The observation space are the robot velocity + orientation and a history of the last X actions
+        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(8 * ACTION_HISTORY + 6,), dtype=np.float32)
 
         self.robot_uid: int = 0
         self.joint_ids: Sequence[int] = []
-        self.joint_angles_history = np.array([], dtype=np.float32)
+        self.action_history = np.array([], dtype=np.float32)
 
         # Robot state consists of the orientation and velocity of the robot
         self.robot_state: npt.NDArray[np.float32] = np.zeros(6, dtype=np.float32)
@@ -109,16 +73,12 @@ class OpenCatGymEnv(Env):
         """
         p.configureDebugVisualizer(p.COV_ENABLE_SINGLE_STEP_RENDERING)
 
-        # Keep track of the last 20 joint angle states. This is used as part of the observation.
-        self.joint_angles_history = np.append(self.joint_angles_history, action)
-        self.joint_angles_history = np.delete(self.joint_angles_history, np.s_[0:11])
+        # Keep track of the last 5 joint angle states. This is used as part of the observation.
+        self.action_history = np.append(self.action_history, action)
+        self.action_history = np.delete(self.action_history, np.s_[0:8])
 
         prev_pos, _ = p.getBasePositionAndOrientation(self.robot_uid)
-        joint_angles = np.asarray(
-            p.getJointStates(self.robot_uid, self.joint_ids),
-            dtype=object,
-        )[:,0].astype(np.float32)
-        desired_joint_angles = kitty_controls.compute_desired_angles(joint_angles, action)
+        desired_joint_angles = controls.compute_desired_angles(action, True)
 
         # Set new joint angles - the forces, positionGains and velocityGains are very important here
         # and will likely not match the real world
@@ -126,13 +86,14 @@ class OpenCatGymEnv(Env):
             self.robot_uid,
             self.joint_ids,
             p.POSITION_CONTROL,
-            desired_joint_angles,
+            np.concatenate((desired_joint_angles[0:4], np.asarray([0, 0, 0]).astype(np.float32), desired_joint_angles[4:8])),
         ) #, forces=[6]*11, positionGains=[0.05]*11, velocityGains=[0.8]*11)
 
-        # Step through the simulation 3 times to simulate 20hz input
-        p.stepSimulation()
-        p.stepSimulation()
-        p.stepSimulation()
+        # Step through the simulation 30 times to simulate 2hz input
+        for _ in range(30):
+            p.stepSimulation()
+            if self.realtime:
+                time.sleep(1.0/60.0)
 
         # Read robot state (pitch, roll and their derivatives of the torso-link)
         # Get pitch and roll of torso
@@ -143,7 +104,7 @@ class OpenCatGymEnv(Env):
             np.asarray(robot_pos, dtype=np.float32),
             np.asarray(prev_pos, dtype=np.float32),
             self.robot_state,
-            self.joint_angles_history,
+            self.action_history,
             desired_joint_angles,
         )
 
@@ -158,7 +119,7 @@ class OpenCatGymEnv(Env):
         info = {}
         observation = np.concatenate((
             self.robot_state,
-            self.joint_angles_history,
+            self.action_history,
         ))
 
         return observation, reward, done, info
@@ -175,13 +136,13 @@ class OpenCatGymEnv(Env):
         # Load Assests
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         plane_uid = p.loadURDF("plane.urdf")
-        friction = 1.2 + np.random.rand() * 0.2
+        friction = 1.0 + np.random.rand() * 0.2
         p.changeDynamics(plane_uid, -1, lateralFriction = friction)
 
         robot_start_pos = [0, 0, 0.04]
         robot_start_orientation = p.getQuaternionFromEuler([0, 0, 0])
         self.robot_uid = p.loadURDF(
-            "models/CatModel.urdf",
+            "meshes/CatModel.urdf",
             robot_start_pos,
             robot_start_orientation,
             flags=p.URDF_USE_INERTIA_FROM_FILE,
@@ -199,21 +160,25 @@ class OpenCatGymEnv(Env):
             0.0, 0.75,     # Angle of upper then lower right front leg
             0.0, 0.75,     # Angle of upper then lower left back leg
             0.0, 0.75,     # Angle of upper then lower right back leg
-            0.0, 0.0, 0.0, # Head neck tail angles, not sure about order.
         ]).astype(np.float32)
 
         # Set initial joint angles with some random noise
-        reset_pos = np.zeros(11, dtype=np.float32)
-        reset_pos = kitty_controls.compute_desired_angles(reset_pos, action)
-        reset_pos += np.random.uniform(-np.pi / 8, np.pi / 8, 11).astype(np.float32)
+        reset_pos = controls.compute_desired_angles(action, True)
+        reset_pos += np.random.uniform(-np.pi / 8, np.pi / 8, 8).astype(np.float32)
         for i, j in enumerate(self.joint_ids):
-            p.resetJointState(self.robot_uid, j, reset_pos[i])
+            if i < 4:
+                p.resetJointState(self.robot_uid, j, reset_pos[i])
+            elif i > 6:
+                p.resetJointState(self.robot_uid, j, reset_pos[i - 3])
+            else:
+                p.resetJointState(self.robot_uid, j, 0)
+                
 
-        # Initialize robot state history with reset position for 20 steps. This is as if the robot
-        # was standing still for 1 second.
+        # Initialize robot state history with reset position for X steps. This is as if the robot
+        # was standing still.
         self.robot_state = self.get_robot_state()
-        self.joint_angles_history = np.tile(action, 20)
-        observation = np.concatenate((self.robot_state, self.joint_angles_history))
+        self.action_history = np.tile(action, ACTION_HISTORY)
+        observation = np.concatenate((self.robot_state, self.action_history))
 
         # Re-activate rendering
         p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1)
@@ -225,9 +190,9 @@ class OpenCatGymEnv(Env):
         # Get pitch and roll of torso
         _, robot_orientation = p.getBasePositionAndOrientation(self.robot_uid)
 
-        # Get angular velocity of robot torso and normalise
+        # Get velocity of robot torso and normalise
         robot_vel = np.asarray(p.getBaseVelocity(self.robot_uid)[1])
-        robot_vel = robot_vel[0:2]
+        robot_vel = robot_vel[0:2] # z axis is not used
         robot_vel_norm = normalize(robot_vel.reshape(-1,1))
 
         return np.concatenate((

@@ -23,7 +23,7 @@ def leg_ik(angle: float,
     and leg extension (length). Uses the formula: a^2 = b^2 + c^2 - 2abcos(C)
     """
     # Prevent negatives angles and angles of small magnitudes
-    length = max(length, JOINT_LENGTH * 0.2)
+    length = min(max(length, JOINT_LENGTH * 0.2), JOINT_LENGTH * 1.8)
     length_squared = length**2
 
     # Inner angle alpha
@@ -44,13 +44,13 @@ def leg_ik(angle: float,
     return upper_joint, lower_joint
 
 @jit(nopython=True)
-def joint_extension(angle: float) -> float:
-    """Returns the length of the leg joint, given the angle of the joint."""
-    return 2 - ((1 - angle)/2)**2
+def joint_extension(length: float) -> float:
+    """Returns the length of the leg joint, biased to high lengths."""
+    return 2 - ((1 - length)/2)**2
 
 @jit(nopython=True)
 def compute_desired_leg_joint_angles(joint_angles: npt.NDArray[np.float32],
-                                     action: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+                                     action: npt.NDArray[np.float32], sim: bool = True) -> npt.NDArray[np.float32]:
     """Compute the desired joint angles for each leg, given the action."""
 
     # Use IK to compute the new angles of each joint
@@ -70,45 +70,57 @@ def compute_desired_leg_joint_angles(joint_angles: npt.NDArray[np.float32],
     joint_angles[0:2] = leg_ik(
         angle=desired_right_rear_angle,
         length=desired_right_rear_length,
-        offset=np.pi/2,
+        offset=(np.pi/2 if sim else -np.pi/2), #-np.pi/2
+        sign=(1 if sim else -1)
     )
     joint_angles[2:4] = leg_ik(
-        angle=(desired_right_front_angle + np.pi/8),
+        angle=(desired_right_front_angle + (np.pi/8 if sim else -np.pi/8)),
         length=desired_right_front_length,
-        offset=0,
-        sign=-1,
+        offset=(0 if sim else np.pi/2),
+        sign=(-1 if sim else 1),
     )
-    joint_angles[7:9] = leg_ik(
+    joint_angles[4:6] = leg_ik(
         angle=desired_left_rear_angle,
         length=desired_left_rear_length,
-        offset=-np.pi/2,
+        offset=(-np.pi/2 if sim else -np.pi/2), #?
         sign=-1,
     )
-    joint_angles[9:11] = leg_ik(
-        angle=(desired_left_front_angle - np.pi/8),
+    joint_angles[6:8] = leg_ik(
+        angle=(desired_left_front_angle + (-np.pi/8 if sim else -np.pi/8)),
         length=desired_left_front_length,
-        offset=np.pi/2,
+        offset=(np.pi/2 if sim else np.pi/2),
     )
 
     return joint_angles
 
 @jit(nopython=True)
-def compute_desired_other_joint_angles(joint_angles: npt.NDArray[np.float32],
-                                       action: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
-    """Compute the desired joint angles for head, neck and tail, given the action."""
-
-    joint_angles[4:7] += STEP_ANGLE_RAD * action[8:11]
-    joint_angles[4:7] = np.clip(joint_angles[4:7], -np.pi/2, np.pi/2)
-
-    return joint_angles
-
-@jit(nopython=True)
-def compute_desired_angles(joint_angles: npt.NDArray[np.float32],
-                           action: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+def compute_desired_angles(action: npt.NDArray[np.float32], sim: bool = True) -> npt.NDArray[np.float32]:
     """"Adds the action vector to the revolute joints. Joint angles are
     clipped. `joint_angles` is changed to have the updated angles of the
     entire robot. The vector returned contains the only the revolute joints
     of the robot."""
-    joint_angles = compute_desired_leg_joint_angles(joint_angles, action)
-    joint_angles = compute_desired_other_joint_angles(joint_angles, action)
+    joint_angles = compute_desired_leg_joint_angles(np.zeros(8, dtype=np.float32), action, sim)
     return joint_angles
+
+def get_quaternion_from_euler(rpy):
+    """
+    Convert an Euler angle to a quaternion.
+    
+    Input
+        :param roll: The roll (rotation around x-axis) angle in degrees.
+        :param pitch: The pitch (rotation around y-axis) angle in degrees.
+        :param yaw: The yaw (rotation around z-axis) angle in degrees.
+    
+    Output
+        :return qx, qy, qz, qw: The orientation in quaternion [x,y,z,w] format
+    """
+    roll = rpy[0] * np.pi / 180
+    pitch = rpy[1] * np.pi / 180
+    yaw = rpy[2] * np.pi / 180
+    
+    qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
+    qy = np.cos(roll/2) * np.sin(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.cos(pitch/2) * np.sin(yaw/2)
+    qz = np.cos(roll/2) * np.cos(pitch/2) * np.sin(yaw/2) - np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
+    qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
+    
+    return [qx, qy, qz, qw]

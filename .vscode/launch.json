@@ -8,14 +8,14 @@
             "name": "Python: Train",
             "type": "python",
             "request": "launch",
-            "program": "train_nybble.py",
+            "program": "nybble_train.py",
             "console": "integratedTerminal"
         },
         {
             "name": "Python: Demo",
             "type": "python",
             "request": "launch",
-            "program": "enjoy_nybble.py",
+            "program": "nybble_demo.py",
             "console": "integratedTerminal"
         },
         {
