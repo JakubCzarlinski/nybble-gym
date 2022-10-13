@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 from numba import jit
 
-BOUND_ANGLE_DEG = 45
+BOUND_ANGLE_DEG = 15
 BOUND_ANGLE_RAD = np.deg2rad(BOUND_ANGLE_DEG)
 STEP_ANGLE_DEG = 15 # Maximum angle delta per step
 STEP_ANGLE_RAD = np.deg2rad(STEP_ANGLE_DEG)
@@ -17,13 +17,14 @@ JOINT_LENGTH_SQUARED = JOINT_LENGTH**2
 def leg_ik(angle: float,
            length: float,
            offset: float,
-           sign: Optional[int]=1) -> Tuple[float, float]:
+           sign: Optional[int]=1,
+           sign_bot: Optional[int]=1) -> Tuple[float, float]:
     """
     Returns each angle in the joint of the leg, to match the desired swing angle
     and leg extension (length). Uses the formula: a^2 = b^2 + c^2 - 2abcos(C)
     """
     # Prevent negatives angles and angles of small magnitudes
-    length = min(max(length, JOINT_LENGTH * 0.2), JOINT_LENGTH * 1.8)
+    length = min(max(length, JOINT_LENGTH * 1.0), JOINT_LENGTH * 1.6)
     length_squared = length**2
 
     # Inner angle alpha
@@ -32,7 +33,7 @@ def leg_ik(angle: float,
 
     # Inner angle beta
     lower_cos = (2 * JOINT_LENGTH_SQUARED - length_squared) / (2 * JOINT_LENGTH_SQUARED)
-    lower_joint = sign*(np.arccos(lower_cos) - np.pi) + offset
+    lower_joint = sign*(sign_bot*(np.arccos(lower_cos) - np.pi)) + offset
 
     if math.isnan(upper_joint):
         print("Upper joint angle is nan")
@@ -68,27 +69,29 @@ def compute_desired_leg_joint_angles(joint_angles: npt.NDArray[np.float32],
 
     # Compute the new angles of the joints
     joint_angles[0:2] = leg_ik(
-        angle=desired_right_rear_angle,
+        angle=desired_right_rear_angle * (1 if sim else -1),
         length=desired_right_rear_length,
         offset=(np.pi/2 if sim else -np.pi/2), #-np.pi/2
         sign=(1 if sim else -1)
     )
     joint_angles[2:4] = leg_ik(
-        angle=(desired_right_front_angle + (np.pi/8 if sim else -np.pi/8)),
+        angle=desired_right_front_angle * (1 if sim else -1), #+ (np.pi/8 if sim else -np.pi/8)),
         length=desired_right_front_length,
-        offset=(0 if sim else np.pi/2),
+        offset=(np.pi/2 if sim else np.pi/2),
         sign=(-1 if sim else 1),
+        sign_bot=(-1 if sim else 1),
     )
     joint_angles[4:6] = leg_ik(
-        angle=desired_left_rear_angle,
+        angle=desired_left_rear_angle * (-1 if sim else -1),
         length=desired_left_rear_length,
         offset=(-np.pi/2 if sim else -np.pi/2), #?
         sign=-1,
     )
     joint_angles[6:8] = leg_ik(
-        angle=(desired_left_front_angle + (-np.pi/8 if sim else -np.pi/8)),
+        angle=desired_left_front_angle * (-1 if sim else -1), #+ (-np.pi/8 if sim else -np.pi/8)),
         length=desired_left_front_length,
         offset=(np.pi/2 if sim else np.pi/2),
+        sign=1,
     )
 
     return joint_angles

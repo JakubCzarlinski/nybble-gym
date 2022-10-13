@@ -14,6 +14,7 @@ from .utils.serial_communication import Connection
 ## Hyper Params
 MAX_EPISODE_LEN = 40  # Number of steps for one training episode
 ACTION_HISTORY = 10
+USE_GYRO = False
 
 class SerialGym(Env):
     """ Gym environment (stable baselines 3) for OpenCat robots.
@@ -26,13 +27,13 @@ class SerialGym(Env):
         # Number of time steps the environment has been running for.
         self.step_counter = 0
         
-        self.conn = Connection(gyro=False)
+        self.conn = Connection(gyro=USE_GYRO) # USE_GYRO
 
         # The action space contains the 8 joint angles
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,), dtype=np.float32)
 
         # The observation space are the torso roll, pitch and the joint angles and a history of the last X actions
-        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(8 * ACTION_HISTORY + 6,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(8 * ACTION_HISTORY + (6 if USE_GYRO else 0),), dtype=np.float32)
 
         self.robot_uid: int = 0
         self.joint_ids: Sequence[int] = []
@@ -50,6 +51,13 @@ class SerialGym(Env):
         # Keep track of the last 5 joint angle states. This is used as part of the observation.
         self.action_history = np.append(self.action_history, action)
         self.action_history = np.delete(self.action_history, np.s_[0:8])
+
+        # action = np.array([
+        #     (self.step_counter % 3) - 1, -1,     # Angle of upper then lower left front leg
+        #     (self.step_counter % 3) - 1, -1,     # Angle of upper then lower right front leg
+        #     (self.step_counter % 3) - 1, -1,     # Angle of upper then lower left back leg
+        #     (self.step_counter % 3) - 1, -1,     # Angle of upper then lower right back leg
+        # ]).astype(np.float32)
         
         desired_joint_angles = controls.compute_desired_angles(action, False)
         
@@ -80,10 +88,10 @@ class SerialGym(Env):
 
         # No debug info
         info = {}
-        observation = np.concatenate((
-            self.robot_state,
-            self.action_history,
-        ))
+        if USE_GYRO:
+            observation = np.concatenate((self.robot_state, self.action_history))
+        else:
+            observation = self.action_history
 
         return observation, reward, done, info
 
@@ -91,13 +99,13 @@ class SerialGym(Env):
         """Reset the simulation to its original state."""
         self.step_counter = 0
         
-        self.conn.alarm()
+        #self.conn.alarm()
 
         action = np.array([
-            0.0, 0.75,     # Angle of upper then lower left front leg
-            0.0, 0.75,     # Angle of upper then lower right front leg
-            0.0, 0.75,     # Angle of upper then lower left back leg
-            0.0, 0.75,     # Angle of upper then lower right back leg
+            0.0, 0.5,     # Angle of upper then lower left front leg
+            0.0, 0.5,     # Angle of upper then lower right front leg
+            0.0, 0.5,     # Angle of upper then lower left back leg
+            0.0, 0.5,     # Angle of upper then lower right back leg
         ]).astype(np.float32)
 
         # Set initial joint angles with some random noise
@@ -109,7 +117,10 @@ class SerialGym(Env):
         # was standing still.
         self.robot_state = self.get_robot_state()
         self.action_history = np.tile(action, ACTION_HISTORY)
-        observation = np.concatenate((self.robot_state, self.action_history))
+        if USE_GYRO:
+            observation = np.concatenate((self.robot_state, self.action_history))
+        else:
+            observation = self.action_history
 
         return observation
 

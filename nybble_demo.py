@@ -15,7 +15,7 @@ else:
 model = SAC.load("models/sac_opencat")
 obs = env.reset()
 
-for _ in range(40):
+for _ in range(200):
     action, _ = model.predict(obs, deterministic=True)
     obs, reward, done, info = env.step(action)
     env.render(mode="human")

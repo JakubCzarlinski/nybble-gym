@@ -12,7 +12,7 @@ class Connection:
             for port in list(serial.tools.list_ports.comports()):
                 # Test port to see if they are a nybble device
                 self.conn = serial.Serial(port[0], 115200, timeout=1)
-                time.sleep(2)
+                time.sleep(8)
                 lines = self.conn.readlines()
                 if b'Nybble\r\n' in lines:
                     print("Found Nybble on port: " + port[0])
@@ -20,9 +20,10 @@ class Connection:
                     break
         else:
             self.conn = serial.Serial(port, 115200, timeout=1)
-            time.sleep(2)
+            time.sleep(8)
             found = False
             lines = self.conn.readlines()
+            print(lines)
             if b'Nybble\r\n' in lines:
                 print("Found Nybble on port: " + port)
                 found = True
@@ -62,7 +63,7 @@ class Connection:
     def set_joint_angles(self, angles):
         # Angles are encoded in binary
         angles = list(map(int, angles))
-        payload = 'l'.encode() + struct.pack('b' * len(angles), *angles) + '~'.encode()
+        payload = 'L'.encode() + struct.pack('b' * len(angles), *angles) + '~'.encode()
         
         self.clear_input()
             
@@ -70,7 +71,7 @@ class Connection:
         self.conn.write(payload)
         print(self.read_line())
         
-        time.sleep(0.4)
+        time.sleep(0.5)
     
     def get_IMU(self):
         if not self.gyro:

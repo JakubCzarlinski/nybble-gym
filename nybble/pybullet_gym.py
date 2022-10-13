@@ -16,6 +16,7 @@ from .utils.reward import reward_function
 ## Hyper Params
 MAX_EPISODE_LEN = 20  # Number of steps for one training episode
 ACTION_HISTORY = 10
+USE_GYRO = False
 
 class PybulletGym(Env):
     """ Gym environment (stable baselines 3) for OpenCat robots.
@@ -49,15 +50,15 @@ class PybulletGym(Env):
         p.resetDebugVisualizerCamera(
             cameraDistance=0.5,
             cameraYaw=-10,
-            cameraPitch=-40,
-            cameraTargetPosition=[0.4, 0, 0],
+            cameraPitch=-10,
+            cameraTargetPosition=[0.04, 0, 0],
         )
 
         # The action space contains the 8 joint angles
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,), dtype=np.float32)
 
         # The observation space are the robot velocity + orientation and a history of the last X actions
-        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(8 * ACTION_HISTORY + 6,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(8 * ACTION_HISTORY + (6 if USE_GYRO else 0),), dtype=np.float32)
 
         self.robot_uid: int = 0
         self.joint_ids: Sequence[int] = []
@@ -80,14 +81,18 @@ class PybulletGym(Env):
         prev_pos, _ = p.getBasePositionAndOrientation(self.robot_uid)
         desired_joint_angles = controls.compute_desired_angles(action, True)
 
+        #print(desired_joint_angles * 180 / np.pi)
+
         # Set new joint angles - the forces, positionGains and velocityGains are very important here
         # and will likely not match the real world
         p.setJointMotorControlArray(
             self.robot_uid,
             self.joint_ids,
             p.POSITION_CONTROL,
-            np.concatenate((desired_joint_angles[0:4], np.asarray([0, 0, 0]).astype(np.float32), desired_joint_angles[4:8])),
-        ) #, forces=[6]*11, positionGains=[0.05]*11, velocityGains=[0.8]*11)
+            targetPositions=np.concatenate((desired_joint_angles[0:4], np.asarray([0, 0, 0]).astype(np.float32), desired_joint_angles[4:8])),
+        #    targetVelocities=[0.0]*11,
+        #    positionGains=[1.0]*11, velocityGains=[0.3]*11)
+        )
 
         # Step through the simulation 30 times to simulate 2hz input
         for _ in range(30):
@@ -117,10 +122,10 @@ class PybulletGym(Env):
 
         # No debug info
         info = {}
-        observation = np.concatenate((
-            self.robot_state,
-            self.action_history,
-        ))
+        if USE_GYRO:
+            observation = np.concatenate((self.robot_state, self.action_history))
+        else:
+            observation = self.action_history
 
         return observation, reward, done, info
 
@@ -139,7 +144,7 @@ class PybulletGym(Env):
         friction = 1.0 + np.random.rand() * 0.2
         p.changeDynamics(plane_uid, -1, lateralFriction = friction)
 
-        robot_start_pos = [0, 0, 0.04]
+        robot_start_pos = [0, 0, 0.05]
         robot_start_orientation = p.getQuaternionFromEuler([0, 0, 0])
         self.robot_uid = p.loadURDF(
             "meshes/CatModel.urdf",
@@ -156,15 +161,15 @@ class PybulletGym(Env):
                 self.joint_ids.append(j)
 
         action = np.array([
-            0.0, 0.75,     # Angle of upper then lower left front leg
-            0.0, 0.75,     # Angle of upper then lower right front leg
-            0.0, 0.75,     # Angle of upper then lower left back leg
-            0.0, 0.75,     # Angle of upper then lower right back leg
+            0.0, 0.5,     # Angle of upper then lower left front leg
+            0.0, 0.5,     # Angle of upper then lower right front leg
+            0.0, 0.5,     # Angle of upper then lower left back leg
+            0.0, 0.5,     # Angle of upper then lower right back leg
         ]).astype(np.float32)
 
         # Set initial joint angles with some random noise
         reset_pos = controls.compute_desired_angles(action, True)
-        reset_pos += np.random.uniform(-np.pi / 8, np.pi / 8, 8).astype(np.float32)
+        reset_pos += np.random.uniform(-np.pi / 16, np.pi / 16, 8).astype(np.float32)
         for i, j in enumerate(self.joint_ids):
             if i < 4:
                 p.resetJointState(self.robot_uid, j, reset_pos[i])
@@ -178,7 +183,10 @@ class PybulletGym(Env):
         # was standing still.
         self.robot_state = self.get_robot_state()
         self.action_history = np.tile(action, ACTION_HISTORY)
-        observation = np.concatenate((self.robot_state, self.action_history))
+        if USE_GYRO:
+            observation = np.concatenate((self.robot_state, self.action_history))
+        else:
+            observation = self.action_history
 
         # Re-activate rendering
         p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1)
