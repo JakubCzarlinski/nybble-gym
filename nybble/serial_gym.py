@@ -1,5 +1,5 @@
 """Create a custom gym environment for the Nybble cat robot."""
-from typing import Sequence
+from typing import Sequence, Tuple
 import numpy as np
 import numpy.typing as npt
 
@@ -43,7 +43,7 @@ class SerialGym(Env):
 
     def step(self,
              action: npt.NDArray[np.float32],
-             ) -> tuple[npt.NDArray[np.float32], np.float32, bool, dict]:
+             ) -> Tuple[npt.NDArray[np.float32], np.float32, bool, dict]:
         """ Perform one step in the simulation. `action` is a vector of values -1 <= x <= 1 .
         """
 
