@@ -51,7 +51,8 @@ def joint_extension(length: float) -> float:
 
 @jit(nopython=True)
 def compute_desired_leg_joint_angles(joint_angles: npt.NDArray[np.float32],
-                                     action: npt.NDArray[np.float32], sim: bool = True) -> npt.NDArray[np.float32]:
+                                     action: npt.NDArray[np.float32],
+                                     sim: Optional[bool]=True) -> npt.NDArray[np.float32]:
     """Compute the desired joint angles for each leg, given the action."""
 
     # Use IK to compute the new angles of each joint
@@ -97,7 +98,8 @@ def compute_desired_leg_joint_angles(joint_angles: npt.NDArray[np.float32],
     return joint_angles
 
 @jit(nopython=True)
-def compute_desired_angles(action: npt.NDArray[np.float32], sim: bool = True) -> npt.NDArray[np.float32]:
+def compute_desired_angles(action: npt.NDArray[np.float32],
+                           sim: Optional[bool]=True) -> npt.NDArray[np.float32]:
     """"Adds the action vector to the revolute joints. Joint angles are
     clipped. `joint_angles` is changed to have the updated angles of the
     entire robot. The vector returned contains the only the revolute joints
@@ -108,22 +110,22 @@ def compute_desired_angles(action: npt.NDArray[np.float32], sim: bool = True) ->
 def get_quaternion_from_euler(rpy):
     """
     Convert an Euler angle to a quaternion.
-    
+
     Input
         :param roll: The roll (rotation around x-axis) angle in degrees.
         :param pitch: The pitch (rotation around y-axis) angle in degrees.
         :param yaw: The yaw (rotation around z-axis) angle in degrees.
-    
+
     Output
         :return qx, qy, qz, qw: The orientation in quaternion [x,y,z,w] format
     """
     roll = rpy[0] * np.pi / 180
     pitch = rpy[1] * np.pi / 180
     yaw = rpy[2] * np.pi / 180
-    
+
     qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
     qy = np.cos(roll/2) * np.sin(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.cos(pitch/2) * np.sin(yaw/2)
     qz = np.cos(roll/2) * np.cos(pitch/2) * np.sin(yaw/2) - np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
     qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
-    
+
     return [qx, qy, qz, qw]

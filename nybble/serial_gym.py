@@ -26,14 +26,20 @@ class SerialGym(Env):
         """ Initialize the environment."""
         # Number of time steps the environment has been running for.
         self.step_counter = 0
-        
+
         self.conn = Connection(gyro=USE_GYRO) # USE_GYRO
 
         # The action space contains the 8 joint angles
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,), dtype=np.float32)
 
-        # The observation space are the torso roll, pitch and the joint angles and a history of the last X actions
-        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(8 * ACTION_HISTORY + (6 if USE_GYRO else 0),), dtype=np.float32)
+        # The observation space are the torso roll, pitch and the joint angles and a history of the
+        # last X actions
+        self.observation_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(8 * ACTION_HISTORY + (6 if USE_GYRO else 0),),
+            dtype=np.float32
+        )
 
         self.robot_uid: int = 0
         self.joint_ids: Sequence[int] = []
@@ -58,9 +64,9 @@ class SerialGym(Env):
         #     (self.step_counter % 3) - 1, -1,     # Angle of upper then lower left back leg
         #     (self.step_counter % 3) - 1, -1,     # Angle of upper then lower right back leg
         # ]).astype(np.float32)
-        
+
         desired_joint_angles = controls.compute_desired_angles(action, False)
-        
+
         self.set_joint_angles(desired_joint_angles)
 
         # 20hz
@@ -76,7 +82,7 @@ class SerialGym(Env):
         #     self.joint_angles_history,
         #     desired_joint_angles,
         # )
-        
+
         reward: np.float32 = np.float32(0.0)
 
         # Stop criteria of current learning episode: Number of steps or robot fell
@@ -98,7 +104,7 @@ class SerialGym(Env):
     def reset(self):
         """Reset the simulation to its original state."""
         self.step_counter = 0
-        
+
         #self.conn.alarm()
 
         action = np.array([
@@ -110,7 +116,7 @@ class SerialGym(Env):
 
         # Set initial joint angles with some random noise
         reset_pos = controls.compute_desired_angles(action, False)
-        
+
         self.set_joint_angles(reset_pos)
 
         # Initialize robot state history with reset position for X steps. This is as if the robot
@@ -126,12 +132,13 @@ class SerialGym(Env):
 
     def get_robot_state(self) -> npt.NDArray[np.float32]:
         """Create a state vector of the robot."""
-        
-        IMU_values = self.conn.get_IMU()
-        
-        robot_orientation = controls.get_quaternion_from_euler(IMU_values[0:3])
-        
-        robot_velocity = np.asarray(IMU_values[3:6]) / 20 # 20 is a guess, in hindsight this might be acceleration
+
+        imu_values = self.conn.get_imu()
+
+        robot_orientation = controls.get_quaternion_from_euler(imu_values[0:3])
+
+        # 20 is a guess, in hindsight this might be acceleration
+        robot_velocity = np.asarray(imu_values[3:6]) / 20
         robot_velocity = robot_velocity[0:2]
         robot_velocity_norm = normalize(robot_velocity.reshape(-1,1))
 
@@ -139,17 +146,19 @@ class SerialGym(Env):
             robot_orientation,
             robot_velocity_norm.reshape(1,-1)[0],  # type: ignore
         )).astype(np.float32)
-        
+
     def get_joint_angles(self) -> npt.NDArray[np.float32]:
+        """Get the current joint angles of the robot."""
         angles = self.conn.get_joint_angles()
         return np.asarray(
              angles[0:4] + angles[8:],
              dtype=object,
          ).astype(np.float32) * np.pi / 180
-        
+
     def set_joint_angles(self, angles: npt.NDArray[np.float32]):
+        """Set the joint angles of the robot."""
         angle_map = ((np.asarray([0, 0, 0, 0, 0, 0, 0, 0,
-            angles[6], angles[2], angles[0], angles[4], 
+            angles[6], angles[2], angles[0], angles[4],
             angles[7], angles[3], angles[1], angles[5]])).astype(np.float32) * 180 / np.pi).tolist()
         angle_map = [int(x) for x in angle_map]
         print("Setting joint angles: " + str(angle_map))
@@ -171,5 +180,5 @@ class SerialGym(Env):
         #     or np.fabs(euler_orientation[1]) > 1
         #     or np.fabs(euler_orientation[2]) > 1
         # )
-        
+
         return False

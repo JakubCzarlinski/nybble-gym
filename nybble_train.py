@@ -1,10 +1,10 @@
 from stable_baselines3.sac.sac import SAC
 
-from nybble.pybullet_gym import PybulletGym
+from nybble.pybullet_gym import PyBulletGym
 
 if __name__ == '__main__':
     # Training
-    env = PybulletGym(render=False)
+    env = PyBulletGym(render=False)
     policy_kwargs = dict(net_arch=[128, 128])
     model = SAC(
         policy="MlpPolicy",

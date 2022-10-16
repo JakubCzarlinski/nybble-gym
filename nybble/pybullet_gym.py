@@ -18,7 +18,7 @@ MAX_EPISODE_LEN = 20  # Number of steps for one training episode
 ACTION_HISTORY = 10
 USE_GYRO = False
 
-class PybulletGym(Env):
+class PyBulletGym(Env):
     """ Gym environment (stable baselines 3) for OpenCat robots.
     """
 
@@ -38,7 +38,7 @@ class PybulletGym(Env):
             #           options="--width=960 --height=540 --mp4=\"training.mp4\" --mp4fps=60")
         else:
             p.connect(p.DIRECT)
-            
+
         self.realtime = realtime
 
         p.setPhysicsEngineParameter(fixedTimeStep=1.0/60.0)
@@ -57,8 +57,14 @@ class PybulletGym(Env):
         # The action space contains the 8 joint angles
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,), dtype=np.float32)
 
-        # The observation space are the robot velocity + orientation and a history of the last X actions
-        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(8 * ACTION_HISTORY + (6 if USE_GYRO else 0),), dtype=np.float32)
+        # The observation space are the robot velocity + orientation and a history of the last X
+        # actions
+        self.observation_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(8 * ACTION_HISTORY + (6 if USE_GYRO else 0),),
+            dtype=np.float32,
+        )
 
         self.robot_uid: int = 0
         self.joint_ids: Sequence[int] = []
@@ -89,7 +95,10 @@ class PybulletGym(Env):
             self.robot_uid,
             self.joint_ids,
             p.POSITION_CONTROL,
-            targetPositions=np.concatenate((desired_joint_angles[0:4], np.asarray([0, 0, 0]).astype(np.float32), desired_joint_angles[4:8])),
+            targetPositions=np.concatenate((
+                desired_joint_angles[0:4],
+                np.asarray([0, 0, 0], dtype=np.float32),
+                desired_joint_angles[4:8])),
         #    targetVelocities=[0.0]*11,
         #    positionGains=[1.0]*11, velocityGains=[0.3]*11)
         )

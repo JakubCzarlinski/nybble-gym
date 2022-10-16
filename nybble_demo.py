@@ -1,14 +1,14 @@
 """Enjoy a rendering of the Nybble walking around the screen."""
 from stable_baselines3.sac.sac import SAC
 
-from nybble.pybullet_gym import PybulletGym
+from nybble.pybullet_gym import PyBulletGym
 from nybble.serial_gym import SerialGym
 
 SIMULATION = False
 
 # Create OpenCatGym environment from class
 if SIMULATION:
-    env = PybulletGym(render=True, realtime=True)
+    env = PyBulletGym(render=True, realtime=True)
 else:
     env = SerialGym()
 
